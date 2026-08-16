@@ -2,7 +2,7 @@
  * React renderer for declarative slots. Per-entry bindings enforce child
  * authorization, and entry boundaries contain registrant failures.
  */
-import { Component, useMemo, useState, useSyncExternalStore, type FC, type ReactNode } from 'react'
+import { Component, Fragment, useMemo, useState, useSyncExternalStore, type FC, type ReactNode } from 'react'
 import {
   SlotOwnershipError, StaleAuthorizationError,
   type ChainRenderOpts, type HostObservable, type LocaleFace, type RenderOpts,
@@ -305,6 +305,20 @@ function entryKeyOf(entry: StoredEntry): number {
 }
 
 /**
+ * Whether a boundary catch is a React↔DOM desync rather than a registrant
+ * failure: React's own bookkeeping tried to remove a node that is no longer a
+ * child of its recorded parent (external DOM mutation, an HMR re-registration
+ * race, a portal container torn down mid-commit). The exact signature is the
+ * DOMException NotFoundError thrown by removeChild/insertBefore.
+ */
+function isDomDesyncError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'NotFoundError'
+}
+
+/** Desync remount retries per boundary: one self-heal, then the ordinary crash path (bounded, no loop). */
+const MAX_DESYNC_REMOUNTS = 1
+
+/**
  * Per-entry isolation: one registrant crashing (component render or inject
  * factory) must not take down siblings. Assembly errors (missing providers)
  * rethrow — a miswired shell must fail loud, not degrade into fallbacks.
@@ -313,22 +327,42 @@ function entryKeyOf(entry: StoredEntry): number {
  * re-renders onto the cell's next survivor, and this boundary's crash face
  * only shows until that re-render lands (permanently once the cell is dry —
  * the outlet then owns the crash face).
+ *
+ * One crash class is environmental, not registrant: a DOM-desync
+ * (NotFoundError from React's own removeChild). The subtree is remounted
+ * fresh once — rebuilding fiber↔DOM bookkeeping from scratch — and the report
+ * passes `abdicate: false` so the entry keeps its cell. A desync past the
+ * remount budget (persistent external mutation) falls through to the ordinary
+ * crash face + abdicate path.
  */
 class SlotErrorBoundary extends Component<
-  { slotKey: string; onEntryError: (error: unknown) => void; children: ReactNode }, { failed: boolean }
+  { slotKey: string; onEntryError: (error: unknown, info?: { abdicate?: boolean }) => void; children: ReactNode },
+  { failed: boolean; remount: number }
 > {
-  override state = { failed: false }
+  override state = { failed: false, remount: 0 }
   static getDerivedStateFromError(error: unknown): { failed: boolean } {
     if (error instanceof SlotAssemblyError) throw error
     return { failed: true }
   }
   override componentDidCatch(error: unknown): void {
     console.error(`slot entry crashed in '${this.props.slotKey}':`, error)
+    // A DOM-desync error is an environment fault, not a registrant bug:
+    // one bounded remount (keyed children) rebuilds the subtree and its DOM
+    // bookkeeping, and the report keeps the entry on its cell. Registrant
+    // failures, and desyncs past the budget, take the ordinary path below.
+    if (isDomDesyncError(error) && this.state.remount < MAX_DESYNC_REMOUNTS) {
+      this.props.onEntryError(error, { abdicate: false })
+      this.setState({ failed: false, remount: this.state.remount + 1 })
+      return
+    }
     this.props.onEntryError(error)
   }
   override render(): ReactNode {
     if (this.state.failed) return <div data-slot-error={this.props.slotKey} />
-    return this.props.children
+    // Keyed children: the remount counter forces a fresh subtree after a
+    // desync self-heal, discarding whatever stale fiber↔DOM bookkeeping the
+    // environment corrupted.
+    return <Fragment key={this.state.remount}>{this.props.children}</Fragment>
   }
 }
 
@@ -622,7 +656,7 @@ function StrictSessionEntry({ slotKey, entry, ownerProps, slotInjected, hookCont
   slotInjected: BoundSlotInject
   hookContext: unknown
   hasHookContext: boolean
-  onEntryError: (error: unknown) => void
+  onEntryError: (error: unknown, info?: { abdicate?: boolean }) => void
 }) {
   const info = useSessionMaybeProvideInfo()
   if (info.sessionId === undefined) return null
@@ -710,9 +744,10 @@ function renderOutletContent(
     // Shadowing kinds abdicate on crash (the cell falls to its next
     // survivor); chain reports without abdicating — election alternatives
     // resolve at select time, and retiring a crashed elected entry would
-    // change the static crash face.
-    const onEntryError = (error: unknown) => {
-      host.reportEntryError(slotKey, entry, error, { abdicate: spec.kind !== 'chain' })
+    // change the static crash face. The boundary overrides to `abdicate:
+    // false` for its DOM-desync self-heal path.
+    const onEntryError = (error: unknown, info?: { abdicate?: boolean }) => {
+      host.reportEntryError(slotKey, entry, error, { abdicate: info?.abdicate ?? spec.kind !== 'chain' })
     }
     return spec.scope === 'session'
       ? (
@@ -873,7 +908,9 @@ function RootOutlet({ ownerProps }: { ownerProps: object }) {
       <SlotErrorBoundary
         slotKey="root"
         key={entryKeyOf(entry)}
-        onEntryError={(error) => { host.reportEntryError('root', entry, error, { abdicate: true }) }}
+        onEntryError={(error, info) => {
+          host.reportEntryError('root', entry, error, { abdicate: info?.abdicate ?? true })
+        }}
       >
         <RootEntry
           entry={entry}
