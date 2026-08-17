@@ -1027,3 +1027,84 @@ describe('session-maybe adoption identity', () => {
     expect(view.container.textContent).toBe('s1#1')
   })
 })
+
+describe('DOM-desync recovery in entry boundaries', () => {
+  const REMOVECHILD = "Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node."
+
+  it('self-heals a single-slot DOM desync (removeChild NotFoundError) by remounting without abdicating', () => {
+    const h = makeHost()
+    h.declare('k.single', SINGLE_ROOT)
+    let mounts = 0
+    h.add('k.single', {
+      component: () => {
+        mounts += 1
+        if (mounts === 1) throw new DOMException(REMOVECHILD, 'NotFoundError')
+        return <b>healed</b>
+      },
+    })
+    const report = vi.spyOn(h.host, 'reportEntryError')
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { view } = mountRoot(h, { 'k.single': SINGLE_ROOT }, renderSlot => renderSlot('k.single', {}))
+    spy.mockRestore()
+    // One fresh mount heals the desync; the entry keeps its cell (no abdication).
+    expect(mounts).toBe(2)
+    expect(view.container.textContent).toBe('healed')
+    expect(view.container.querySelector('[data-slot-error]')).toBeNull()
+    expect(report).toHaveBeenCalledTimes(1)
+    expect(report.mock.calls[0]![3]).toEqual({ abdicate: false })
+  })
+
+  it('self-heals a session-scope DOM desync through StrictSessionEntry', () => {
+    const h = makeHost()
+    h.addSession('s1')
+    h.declare('k.session', SINGLE_SESSION)
+    let mounts = 0
+    h.add('k.session', {
+      component: () => {
+        mounts += 1
+        if (mounts === 1) throw new DOMException(REMOVECHILD, 'NotFoundError')
+        return <b>s-healed</b>
+      },
+    })
+    const report = vi.spyOn(h.host, 'reportEntryError')
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { view } = mountRoot(h, { 'k.session': SINGLE_SESSION },
+      renderSlot => <SessionProvider>{() => renderSlot('k.session', {})}</SessionProvider>)
+    act(() => { h.current.set('s1') })
+    spy.mockRestore()
+    expect(mounts).toBe(2)
+    expect(view.container.textContent).toBe('s-healed')
+    expect(report.mock.calls[0]![3]).toEqual({ abdicate: false })
+  })
+
+  it('falls through to the crash face + abdicate when the DOM desync persists past the remount budget', () => {
+    const h = makeHost()
+    h.declare('k.single', SINGLE_ROOT)
+    h.add('k.single', {
+      component: () => { throw new DOMException(REMOVECHILD, 'NotFoundError') },
+    })
+    const report = vi.spyOn(h.host, 'reportEntryError')
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { view } = mountRoot(h, { 'k.single': SINGLE_ROOT }, renderSlot => renderSlot('k.single', {}))
+    spy.mockRestore()
+    expect(view.container.querySelector('[data-slot-error]')).not.toBeNull()
+    // First crash remounts (no abdication); the remount's own crash exhausts
+    // the budget and takes the ordinary abdicate path for single kind.
+    expect(report).toHaveBeenCalledTimes(2)
+    expect(report.mock.calls[0]![3]).toEqual({ abdicate: false })
+    expect(report.mock.calls[1]![3]).toEqual({ abdicate: true })
+  })
+
+  it('keeps the ordinary abdicate path for registrant errors (no desync remount)', () => {
+    const h = makeHost()
+    h.declare('k.single', SINGLE_ROOT)
+    h.add('k.single', { component: () => { throw new Error('registrant boom') } })
+    const report = vi.spyOn(h.host, 'reportEntryError')
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { view } = mountRoot(h, { 'k.single': SINGLE_ROOT }, renderSlot => renderSlot('k.single', {}))
+    spy.mockRestore()
+    expect(view.container.querySelector('[data-slot-error]')).not.toBeNull()
+    expect(report).toHaveBeenCalledTimes(1)
+    expect(report.mock.calls[0]![3]).toEqual({ abdicate: true })
+  })
+})
