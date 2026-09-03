@@ -1190,7 +1190,7 @@ describe('DOM-desync recovery in entry boundaries', () => {
     const report = vi.spyOn(h.host, 'reportEntryError')
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const { view } = mountRoot(h, { 'k.session': SINGLE_SESSION },
-      renderSlot => <SessionProvider>{() => renderSlot('k.session', {})}</SessionProvider>)
+      (renderSlot, SessionProvider) => <SessionProvider>{renderSlot('k.session', {})}</SessionProvider>)
     act(() => { h.current.set('s1') })
     spy.mockRestore()
     expect(mounts).toBe(2)
