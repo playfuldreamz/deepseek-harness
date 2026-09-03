@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-16-slot-boundary-dom-desync-recovery.md
+2026-08-16-slot-boundary-dom-desync-recovery.md: 948a740b0ce1e8fb55ef8549c58c74ea50c88c1c
+2026-08-16-slot-boundary-dom-desync-recovery.zh.md: df404ae15fcb3cb0951be134479fbc8b392bffc6
