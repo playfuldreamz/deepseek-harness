@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-用户会话在 [scoped-slots.tsx](../../../../packages/client/web-react/src/scoped-slots.tsx) 第 326 行记录了 `NotFoundError: Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node.`，报错前缀为 `slot entry crashed in 'conversation.composer.bar'`。该消息来自 `SlotErrorBoundary.componentDidCatch`，说明崩溃已被包含——应用没有崩溃——但 composer bar 没有幸免。该 bar 是 `single` 类 slot，只有一个注册；边界的崩溃报告让该注册让位（非 chain 类都会以 `reportEntryError(..., { abdicate: true })` 让位），于是 `entriesOfSlot` 没有幸存者，outlet 渲染出永久崩溃面 `<div data-slot-error="conversation.composer.bar" />`。用户的输入 UI 一直空白，直到条目重新注册（HMR）或页面刷新。
+用户会话在 [scoped-slots.tsx](../../../../packages/client/ui-renderer/src/client/scoped-slots.tsx) 第 326 行记录了 `NotFoundError: Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node.`，报错前缀为 `slot entry crashed in 'conversation.composer.bar'`。该消息来自 `SlotErrorBoundary.componentDidCatch`，说明崩溃已被包含——应用没有崩溃——但 composer bar 没有幸免。该 bar 是 `single` 类 slot，只有一个注册；边界的崩溃报告让该注册让位（非 chain 类都会以 `reportEntryError(..., { abdicate: true })` 让位），于是 `entriesOfSlot` 没有幸存者，outlet 渲染出永久崩溃面 `<div data-slot-error="conversation.composer.bar" />`。用户的输入 UI 一直空白，直到条目重新注册（HMR）或页面刷新。
 
 抛出的 `NotFoundError` 是 React 自身的 DOM 记账与真实 DOM 失去同步：React 试图移除一个已不再是其记录父节点的子节点。注册者的组件并没有抛错，抛错的是环境——浏览器扩展或脚本改动 React 管理的 DOM、portal 容器在提交中途被拆除、或 HMR 重新注册与卸载竞态。把这种环境性失败当作注册者失败对待，正是缺陷所在：它永久清退了一个健康的条目。
 
@@ -39,4 +39,4 @@ Status: implemented
 
 ## 测试
 
-[scoped-slots.client.spec.tsx](../../../../packages/client/web-react/tests/scoped-slots.client.spec.tsx) 中新增的 `DOM-desync recovery in entry boundaries` 块覆盖：single slot 的 `NotFoundError` 无让位自愈（报告参数 `{ abdicate: false }`、无 `[data-slot-error]`、两次挂载）；经由 `StrictSessionEntry` 的相同路径；持续失步在一次重挂载后回落崩溃面 + 让位（报告参数先 `{ abdicate: false }` 后 `{ abdicate: true }`）；注册者 `Error` 保持立即让位且不重挂载。既有的崩溃包含测试（list slot 兄弟存活、inject 工厂抛错、chain 重选）不变，钉住注册者路径。
+[scoped-slots.client.spec.tsx](../../../../packages/client/ui-renderer/tests/scoped-slots.client.spec.tsx) 中新增的 `DOM-desync recovery in entry boundaries` 块覆盖：single slot 的 `NotFoundError` 无让位自愈（报告参数 `{ abdicate: false }`、无 `[data-slot-error]`、两次挂载）；经由 `StrictSessionEntry` 的相同路径；持续失步在一次重挂载后回落崩溃面 + 让位（报告参数先 `{ abdicate: false }` 后 `{ abdicate: true }`）；注册者 `Error` 保持立即让位且不重挂载。既有的崩溃包含测试（list slot 兄弟存活、inject 工厂抛错、chain 重选）不变，钉住注册者路径。
