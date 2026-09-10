@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/cookbook/syncing-a-fork.md
-syncing-a-fork.md: d61b9d05e4c07465e22b7e7cb8fd2ff10e31a5af
-syncing-a-fork.zh.md: aa773a38420b0d9d96fbb6eba5d80d9db2d91384
+syncing-a-fork.md: 71cc171972a8c1ceec535679b5c5153b9db9aabb
+syncing-a-fork.zh.md: 573d13a9e8dd6c47df5c4340d13840a35bad915e

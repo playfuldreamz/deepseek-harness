@@ -8,9 +8,9 @@
 
 ```sh
 git remote -v
-git status # 必须干净 — 先 stash 或 commit
-git fetch origin # 上游：https://github.com/deepseek-ai/deepseek-harness.git
-git fetch fork   # 你的 fork：https://github.com/playfuldreamz/deepseek-harness.git
+git status # must be clean — stash or commit first
+git fetch origin # upstream: https://github.com/deepseek-ai/deepseek-harness.git
+git fetch fork   # your fork:  https://github.com/playfuldreamz/deepseek-harness.git
 git rev-list --left-right --count fork/master...origin/master
 ```
 
@@ -27,14 +27,14 @@ git rev-list --left-right --count fork/master...origin/master
 该方式保留双方历史且无需 force-push，适合 fork 被他人共享的场景。
 
 ```sh
-git checkout -b backup-fork-master fork/master # 保存恢复点
+git checkout -b backup-fork-master fork/master # save a recovery point
 git checkout master
-git merge --ff-only fork/master                # 将你的 2 个提交带到本地 master
-git merge origin/master                        # 合并上游的 2688 个提交
-# 解决冲突：编辑文件 -> git add <file> -> git commit
+git merge --ff-only fork/master                # bring your 2 commits to the local master
+git merge origin/master                        # merge the 2688 upstream commits
+# fix conflicts: edit files -> git add <file> -> git commit
 git push fork master
 git fetch fork
-git rev-list --left-right --count fork/master...origin/master # 修复提交后为 4 0，干净快进后为 0 0
+git rev-list --left-right --count fork/master...origin/master # 4 0 after the fix commit, 0 0 after a clean fast-forward
 ```
 
 在 `b53cd8ff8b` 的结果中，父提交为 `76fda72979`（上游）和 `90a6b731da`（fork），共 5 个文件 `217++`（`scoped-slots` 修复 + 恢复笔记）。后续修复 `efa9131fe8` 纠正了 `SessionProvider` 测试参数。
@@ -45,8 +45,8 @@ git rev-list --left-right --count fork/master...origin/master # 修复提交后�
 
 ```sh
 git checkout fork/master
-git rebase origin/master # 将你的 2 个提交重放到 2688 个提交之上
-# 逐个提交修复：git add -> git rebase --continue
+git rebase origin/master # replay your 2 commits on top of the 2688
+# fix each commit: git add -> git rebase --continue
 git push --force-with-lease fork fork/master:master
 ```
 
@@ -57,9 +57,9 @@ git push --force-with-lease fork fork/master:master
 ```sh
 git checkout master
 git reset --hard HEAD
-pnpm run clean          # RepositoryCleaner 会删除孤立的包目录和 lib/.typecheck
-pnpm install            # 恢复 node_modules/typescript/bin/tsc
-pnpm run typecheck      # host tsc + tsdown + client tsc；示例中为 186s + 60s
+pnpm run clean          # RepositoryCleaner removes orphan package dirs and lib/.typecheck
+pnpm install            # restores node_modules/typescript/bin/tsc
+pnpm run typecheck      # host tsc + tsdown + client tsc; was 186s + 60s in the example
 git push fork master --verbose
 git ls-remote fork master   # -> b53cd8ff8b / efa9131fe8
 git ls-remote origin master # -> 76fda72979
@@ -72,13 +72,13 @@ git ls-remote origin master # -> 76fda72979
 * `Updates were rejected because the remote contains work` — 在你 fetch 之后 fork 又有新提交；`git fetch fork` 后再次合并。
 * `MISSING_EXPORT ... from ../session-persistence/src/index.ts` 或 `lib/index.js:6` 导入 `DEFAULT_PREPARED_SESSION_CACHE_SIZE` — 陈旧的 `session-persistence-sqlite/lib/`；执行 `rm -rf packages/session/session-persistence-sqlite` 或 `pnpm run clean`。
 * 在 `pnpm run clean` 后出现 `Cannot find module '.../typescript/bin/tsc'` — `node_modules` 已被清理；执行 `pnpm install` 再执行 `pnpm run typecheck`。
-* 在沙盒中执行 `git push` 时出现 `Could not read Username for 'https://github.com'` — WSL 中没有 `gh` 令牌、`~/.git-credentials` 或 Windows 凭据管理器；在已存有 `playfuldreamz` 令牌的普通 Windows 终端中推送，或为该次推送设置 `https://TOKEN@github.com/...` 并在推送后恢复 URL。
+* 在 WSL 中执行 `git push` 时出现 `Could not read Username for 'https://github.com'` — 用 `git config --global credential.helper "/mnt/c/Program\ Files/Git/mingw64/libexec/git-core/git-credential-manager-core.exe"` 将 WSL git 一次性指向 Windows 凭据管理器，再用盲查确认（`echo 'url=https://github.com/playfuldreamz/deepseek-harness.git' | git credential fill >/dev/null; echo $?`，退出码 0 表示找到了已存凭据且不会打印密钥）。该方式复用 Windows Git 已存的 `playfuldreamz` 令牌，后续会话无需逐次配置即可推送。备选：在普通 Windows 终端中推送，或为该次推送设置 `https://TOKEN@github.com/...` 并在推送后恢复 URL。
 * `refusing to overwrite hooks directory with an invalid ownership marker: .git/dsh-hooks` — 因 `HOME=/tmp` 产生的陈旧 `C:\...\dsh-hooks` 文件；执行 `rm -rf -- "C:\Users\...\dsh-hooks"` 或 `rm -rf .git/dsh-hooks` 后执行 `pnpm install` 重建。
 
 ## 验证
 
 ```sh
-git status --porcelain -b # ## master...origin/master [ahead 4]，reset 后工作树干净
+git status --porcelain -b # ## master...origin/master [ahead 4], working tree clean after reset
 git branch -vv
 git log --oneline --graph -n 4 # efa9131 -> b53cd8 -> 76fda / 90a6b
 git rev-parse HEAD && git rev-parse fork/master && git rev-parse origin/master
