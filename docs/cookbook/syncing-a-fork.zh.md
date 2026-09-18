@@ -37,7 +37,7 @@ git fetch fork
 git rev-list --left-right --count fork/master...origin/master # 4 0 after the fix commit, 0 0 after a clean fast-forward
 ```
 
-在 `b53cd8ff8b` 的结果中，父提交为 `76fda72979`（上游）和 `90a6b731da`（fork），共 5 个文件 `217++`（`scoped-slots` 修复 + 恢复笔记）。后续修复 `efa9131fe8` 纠正了 `SessionProvider` 测试参数。
+合并结果提交有两个父提交（上游顶端和 fork 顶端），共 5 个文件 `217++`（`scoped-slots` 修复 + 恢复笔记）。后续修复纠正了 `SessionProvider` 测试参数。
 
 ## 4. 方案 C — CLI rebase（线性历史，重写 fork）
 
@@ -52,7 +52,7 @@ git push --force-with-lease fork fork/master:master
 
 ## 5. 合并后
 
-2000+ 提交的合并可能留下陈旧的构建产物。`session-persistence-sqlite` 已在 `76fda`（`bec6805d6a`）被删除，但 `packages/session/session-persistence-sqlite/lib/` 仍可能以未跟踪的 `lib/` 形式残留，`tsdown` 仍会尝试打包其中的陈旧 `lib/index.js:6`（`MISSING_EXPORT`）。
+2000+ 提交的合并可能留下陈旧的构建产物。`session-persistence-sqlite` 已在上游被删除，但 `packages/session/session-persistence-sqlite/lib/` 仍可能以未跟踪的 `lib/` 形式残留，`tsdown` 仍会尝试打包其中的陈旧 `lib/index.js:6`（`MISSING_EXPORT`）。
 
 ```sh
 git checkout master
@@ -61,8 +61,8 @@ pnpm run clean          # RepositoryCleaner removes orphan package dirs and lib/
 pnpm install            # restores node_modules/typescript/bin/tsc
 pnpm run typecheck      # host tsc + tsdown + client tsc; was 186s + 60s in the example
 git push fork master --verbose
-git ls-remote fork master   # -> b53cd8ff8b / efa9131fe8
-git ls-remote origin master # -> 76fda72979
+git ls-remote fork master   # -> the pushed merge tip
+git ls-remote origin master # -> the upstream tip you merged
 ```
 
 沙盒说明：`.agents` 在 WSL 沙盒中为只读（`touch .agents` 时出现 `Read-only file system`，`unable to unlink`）。直接执行 `git checkout master && git reset --hard HEAD` 会因此中止。上述合并使用了可写的 worktree（`git worktree add /tmp/... origin/master` 再 `merge fork/master`）加上 `git update-ref refs/heads/master <merge-sha>`，从而在不触碰只读工作树的情况下移动分支。在沙盒外（普通 PowerShell）`checkout`/`reset` 可正常工作。
@@ -80,6 +80,6 @@ git ls-remote origin master # -> 76fda72979
 ```sh
 git status --porcelain -b # ## master...origin/master [ahead 4], working tree clean after reset
 git branch -vv
-git log --oneline --graph -n 4 # efa9131 -> b53cd8 -> 76fda / 90a6b
+git log --oneline --graph -n 4 # newest-first: fix, merge, upstream tip / fork tip
 git rev-parse HEAD && git rev-parse fork/master && git rev-parse origin/master
 ```

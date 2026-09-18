@@ -37,7 +37,7 @@ git fetch fork
 git rev-list --left-right --count fork/master...origin/master # 4 0 after the fix commit, 0 0 after a clean fast-forward
 ```
 
-The result at `b53cd8ff8b` had parents `76fda72979` (upstream) and `90a6b731da` (fork) and 5 files `217++` (`scoped-slots` fix + recovery notes). A follow-up fix `efa9131fe8` corrected the `SessionProvider` test param.
+The resulting merge commit had two parents (the upstream tip and the fork tip) and carried 5 files `217++` (`scoped-slots` fix + recovery notes). A follow-up fix corrected the `SessionProvider` test param.
 
 ## 4. Option C — CLI rebase (linear history, rewrites the fork)
 
@@ -52,7 +52,7 @@ git push --force-with-lease fork fork/master:master
 
 ## 5. After the merge
 
-A 2000+ commit merge can leave stale build outputs. `session-persistence-sqlite` was deleted at `76fda` (`bec6805d6a`) but `packages/session/session-persistence-sqlite/lib/` can remain as an untracked `lib/` that `tsdown` still tries to bundle (`MISSING_EXPORT`).
+A 2000+ commit merge can leave stale build outputs. `session-persistence-sqlite` was deleted upstream, but `packages/session/session-persistence-sqlite/lib/` can remain as an untracked `lib/` that `tsdown` still tries to bundle (`MISSING_EXPORT`).
 
 ```sh
 git checkout master
@@ -61,8 +61,8 @@ pnpm run clean          # RepositoryCleaner removes orphan package dirs and lib/
 pnpm install            # restores node_modules/typescript/bin/tsc
 pnpm run typecheck      # host tsc + tsdown + client tsc; was 186s + 60s in the example
 git push fork master --verbose
-git ls-remote fork master   # -> b53cd8ff8b / efa9131fe8
-git ls-remote origin master # -> 76fda72979
+git ls-remote fork master   # -> the pushed merge tip
+git ls-remote origin master # -> the upstream tip you merged
 ```
 
 Sandbox note: `.agents` is read-only in the WSL sandbox (`Read-only file system` on `touch .agents`). A direct `git checkout master && git reset --hard HEAD` there aborts on `unable to unlink`. The merge above used a writable worktree (`git worktree add /tmp/... origin/master` then `merge fork/master`) plus `git update-ref refs/heads/master <merge-sha>` to move the branch without touching the read-only worktree. Outside the sandbox (normal PowerShell) `checkout`/`reset` work.
@@ -80,6 +80,6 @@ Sandbox note: `.agents` is read-only in the WSL sandbox (`Read-only file system`
 ```sh
 git status --porcelain -b # ## master...origin/master [ahead 4], working tree clean after reset
 git branch -vv
-git log --oneline --graph -n 4 # efa9131 -> b53cd8 -> 76fda / 90a6b
+git log --oneline --graph -n 4 # newest-first: fix, merge, upstream tip / fork tip
 git rev-parse HEAD && git rev-parse fork/master && git rev-parse origin/master
 ```
