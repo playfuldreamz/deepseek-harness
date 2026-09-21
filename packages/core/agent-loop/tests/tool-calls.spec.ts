@@ -13,7 +13,7 @@ import ToolRuntime, { defineContentToolFixture, TOOL_ABORTED_BEFORE_DISPATCH, TO
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from '@deepseek-ai/dsh-agent-loop'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import { describeToolsValue } from '../src/tool-calls.ts'
+import { describeToolsValue, schedulerSlotState } from '../src/tool-calls.ts'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
 import type { PtcRunRequest, PtcRunResult } from '@deepseek-ai/dsh-ptc-runtime'
@@ -720,6 +720,19 @@ describe('describeToolsValue', () => {
   })
 })
 
+describe('schedulerSlotState', () => {
+  it('tells a foreign same-description slot apart from no slot', () => {
+    expect(schedulerSlotState(42)).toBe('missing')
+    expect(schedulerSlotState(null)).toBe('missing')
+    expect(schedulerSlotState({})).toBe('missing')
+    expect(schedulerSlotState({ [Symbol('other')]: 1 })).toBe('missing')
+    expect(schedulerSlotState({ [TOOL_RUNTIME_SCHEDULER]: 1 })).toBe('missing')
+    const foreign = Symbol(TOOL_RUNTIME_SCHEDULER.description)
+    expect(schedulerSlotState({ [foreign]: 1 })).toBe('foreign')
+    expect(schedulerSlotState(Object.create({ [foreign]: 1 }))).toBe('foreign')
+  })
+})
+
 describe('tool-call scheduler: missing scheduler slot', () => {
   it('fails the turn with a coded error before committing any tool/call', async () => {
     const adapter = new MockAdapter([
@@ -739,7 +752,7 @@ describe('tool-call scheduler: missing scheduler slot', () => {
         reason: {
           kind: 'error',
           error: {
-            message: 'tool runtime scheduler is unavailable (turn 1 step 1, tools: ToolRuntime)',
+            message: 'tool runtime scheduler is unavailable (turn 1 step 1, tools: ToolRuntime, schedulerSlot: missing)',
             code: 'TOOL_SCHEDULER_UNAVAILABLE',
           },
         },

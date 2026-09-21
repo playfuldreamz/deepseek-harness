@@ -34,6 +34,26 @@ export function describeToolsValue(tools: unknown): string {
     : typeof tools
 }
 
+/**
+ * Whether the tools object carries a scheduler slot under a different symbol
+ * identity (a duplicate `dsh-tools` module evaluation) versus no slot at all.
+ *
+ * @param tools - the resolved `ctx.tools` value, possibly foreign.
+ * @returns `foreign` when a same-description slot symbol from another module
+ * copy is present anywhere on the prototype chain, else `missing`.
+ */
+export function schedulerSlotState(tools: unknown): 'foreign' | 'missing' {
+  let current: object | null = typeof tools === 'object' && tools !== null ? tools : null
+  while (current !== null) {
+    const clash = Object.getOwnPropertySymbols(current).some(symbol =>
+      symbol.description === TOOL_RUNTIME_SCHEDULER.description && symbol !== TOOL_RUNTIME_SCHEDULER,
+    )
+    if (clash) return 'foreign'
+    current = Object.getPrototypeOf(current) as object | null
+  }
+  return 'missing'
+}
+
 /** One tool call after argument parsing, ready to schedule. */
 interface PlannedCall {
   block: ToolCallBlock
@@ -90,7 +110,7 @@ export async function executeToolCalls(
   // oxlint-disable-next-line typescript/no-unnecessary-condition -- foreign tools objects can lack the slot at runtime.
   if (scheduler === undefined) {
     throw new HarnessError(
-      `tool runtime scheduler is unavailable (turn ${turn} step ${step}, tools: ${describeToolsValue(ctx.tools)})`,
+      `tool runtime scheduler is unavailable (turn ${turn} step ${step}, tools: ${describeToolsValue(ctx.tools)}, schedulerSlot: ${schedulerSlotState(ctx.tools)})`,
       'TOOL_SCHEDULER_UNAVAILABLE',
     )
   }
