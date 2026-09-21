@@ -18,6 +18,7 @@ import type {
 import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
 import type { GenerateOptions, LlmCallConfig, Message, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
 import {
+  HarnessError,
   LlmError,
   createAssistantMessage,
   errorChain,
@@ -325,13 +326,16 @@ export class ReactLoopAgent implements Agent {
         turnEnds = { kind: 'aborted', reason: signal.reason as AgentCancelCause }
         throw error
       }
-      // Every failure is structured: an `LlmError` keeps its facts, anything
-      // else flattens to `errorChain` text under the `UNKNOWN` code.
+      // Every failure is structured: an `LlmError` keeps its facts, any other
+      // `HarnessError` keeps its message and code, and anything else flattens
+      // to `errorChain` text under the `UNKNOWN` code.
       turnEnds = {
         kind: 'error',
         error: error instanceof LlmError
           ? error.failure
-          : { message: errorChain(error), code: 'UNKNOWN' },
+          : error instanceof HarnessError
+            ? { message: error.message, code: error.code }
+            : { message: errorChain(error), code: 'UNKNOWN' },
       }
       this.throwError(error)
     } finally {

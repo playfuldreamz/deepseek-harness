@@ -9,7 +9,7 @@ import { createUserMessage, ToolCallId, StreamChunk  } from '@deepseek-ai/dsh-ll
 import SessionStore, { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
-import ToolRuntime, { defineContentToolFixture, TOOL_ABORTED_BEFORE_DISPATCH, TOOL_RUNTIME_SCHEDULER, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { defineContentToolFixture, TOOL_ABORTED_BEFORE_DISPATCH, TOOL_RUNTIME_SCHEDULER, type PostToolDecision, type PreToolDecision, type ToolRuntimeScheduler } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from '@deepseek-ai/dsh-agent-loop'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
@@ -701,6 +701,34 @@ describe('tool-call scheduler: failure quiescence', () => {
     expect(gated.pending()).toEqual([])
     expect(events(agent).findLast(event => event.type === 'turn/end')).toMatchObject({
       data: { reason: { kind: 'error', error: { message: schedulerError.message, code: 'UNKNOWN' } } },
+    })
+  })
+})
+
+describe('tool-call scheduler: missing scheduler slot', () => {
+  it('fails the turn with a coded error before committing any tool/call', async () => {
+    const adapter = new MockAdapter([
+      multiCall([{ id: 'c1', name: 'p', args: { id: '1' } }]),
+    ])
+    const ctx = await harness(adapter)
+    const gated = gatedParallelTool('p')
+    ctx.tools.register(gated.tool)
+    ;(ctx.tools as unknown as Record<symbol, ToolRuntimeScheduler | undefined>)[TOOL_RUNTIME_SCHEDULER] = undefined
+    const agent = await ctx.agentLoop.create(SessionId('scheduler-missing'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+    expect(gated.started).toEqual([])
+    expect(events(agent).some(event => event.type === 'tool/call')).toBe(false)
+    expect(events(agent).findLast(event => event.type === 'turn/end')).toMatchObject({
+      data: {
+        reason: {
+          kind: 'error',
+          error: {
+            message: 'tool runtime scheduler is unavailable (turn 1 step 1)',
+            code: 'TOOL_SCHEDULER_UNAVAILABLE',
+          },
+        },
+      },
     })
   })
 })
