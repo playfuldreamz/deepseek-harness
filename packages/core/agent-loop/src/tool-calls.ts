@@ -17,6 +17,23 @@ import type { Session, SessionSeq, UserMessage } from '@deepseek-ai/dsh-session'
 import { TOOL_ABORTED_BEFORE_DISPATCH, TOOL_RUNTIME_SCHEDULER, type ToolExecutionInput, type ToolExecutionMode, type ToolExecutionResult, type ToolRunContext, type ToolRuntimeScheduler } from '@deepseek-ai/dsh-tools'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 
+/**
+ * Best-effort identity of the object behind `ctx.tools` for scheduler-slot
+ * diagnostics: a missing slot means the loop ran against a foreign tools
+ * object (or a duplicate module copy), and the name tells which.
+ *
+ * @param tools - the resolved `ctx.tools` value, possibly foreign.
+ * @returns the constructor name when identifiable, else the `typeof` tag.
+ */
+export function describeToolsValue(tools: unknown): string {
+  const ctor = typeof tools === 'object' && tools !== null
+    ? (tools as { constructor?: unknown }).constructor
+    : undefined
+  return typeof ctor === 'function' && ctor.name.length > 0
+    ? ctor.name
+    : typeof tools
+}
+
 /** One tool call after argument parsing, ready to schedule. */
 interface PlannedCall {
   block: ToolCallBlock
@@ -73,7 +90,7 @@ export async function executeToolCalls(
   // oxlint-disable-next-line typescript/no-unnecessary-condition -- foreign tools objects can lack the slot at runtime.
   if (scheduler === undefined) {
     throw new HarnessError(
-      `tool runtime scheduler is unavailable (turn ${turn} step ${step})`,
+      `tool runtime scheduler is unavailable (turn ${turn} step ${step}, tools: ${describeToolsValue(ctx.tools)})`,
       'TOOL_SCHEDULER_UNAVAILABLE',
     )
   }

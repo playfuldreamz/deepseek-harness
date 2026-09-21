@@ -13,6 +13,7 @@ import ToolRuntime, { defineContentToolFixture, TOOL_ABORTED_BEFORE_DISPATCH, TO
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from '@deepseek-ai/dsh-agent-loop'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import { describeToolsValue } from '../src/tool-calls.ts'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
 import type { PtcRunRequest, PtcRunResult } from '@deepseek-ai/dsh-ptc-runtime'
@@ -705,6 +706,20 @@ describe('tool-call scheduler: failure quiescence', () => {
   })
 })
 
+describe('describeToolsValue', () => {
+  it('names constructors and falls back to the typeof tag', () => {
+    expect(describeToolsValue(undefined)).toBe('undefined')
+    expect(describeToolsValue(null)).toBe('object')
+    expect(describeToolsValue(42)).toBe('number')
+    expect(describeToolsValue({})).toBe('Object')
+    expect(describeToolsValue(Object.create(null))).toBe('object')
+    expect(describeToolsValue({ constructor: 42 })).toBe('object')
+    function nameless(this: unknown) {}
+    Object.defineProperty(nameless, 'name', { value: '' })
+    expect(describeToolsValue({ constructor: nameless })).toBe('object')
+  })
+})
+
 describe('tool-call scheduler: missing scheduler slot', () => {
   it('fails the turn with a coded error before committing any tool/call', async () => {
     const adapter = new MockAdapter([
@@ -724,7 +739,7 @@ describe('tool-call scheduler: missing scheduler slot', () => {
         reason: {
           kind: 'error',
           error: {
-            message: 'tool runtime scheduler is unavailable (turn 1 step 1)',
+            message: 'tool runtime scheduler is unavailable (turn 1 step 1, tools: ToolRuntime)',
             code: 'TOOL_SCHEDULER_UNAVAILABLE',
           },
         },
