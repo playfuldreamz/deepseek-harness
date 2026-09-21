@@ -5,15 +5,15 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { createUserMessage, ToolCallId, StreamChunk  } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ToolCallId, StreamChunk, type ToolCallBlock  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
-import ToolRuntime, { defineContentToolFixture, TOOL_ABORTED_BEFORE_DISPATCH, TOOL_RUNTIME_SCHEDULER, type PostToolDecision, type PreToolDecision, type ToolRuntimeScheduler } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { defineContentToolFixture, TOOL_ABORTED_BEFORE_DISPATCH, TOOL_RUNTIME_SCHEDULER, type PostToolDecision, type PreToolDecision, type ToolExecutionResult, type ToolRunContext, type ToolRuntimeScheduler } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from '@deepseek-ai/dsh-agent-loop'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import { describeToolsValue, schedulerSlotState } from '../src/tool-calls.ts'
+import { describeToolsValue, executeToolCalls, schedulerSlotState } from '../src/tool-calls.ts'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
 import type { PtcRunRequest, PtcRunResult } from '@deepseek-ai/dsh-ptc-runtime'
@@ -758,6 +758,36 @@ describe('tool-call scheduler: missing scheduler slot', () => {
         },
       },
     })
+  })
+})
+
+describe('tool-call scheduler: duplicate module copy', () => {
+  it('runs the batch when the slot arrives under the shared registry symbol', async () => {
+    const ctx = await harness(new MockAdapter([]))
+    const agent = await ctx.agentLoop.create(SessionId('scheduler-foreign-copy'), { provider: 'mock', model: 'mock' })
+    const result: ToolExecutionResult = { isError: false, value: 'ok', content: [{ type: 'text', text: 'ok' }] }
+    const scheduler: ToolRuntimeScheduler = {
+      prepare: async () => ({ kind: 'dispatch', exec: {} as ToolRunContext }),
+      dispatch: async () => ({ kind: 'final-result', result }),
+      finalize: async (_exec, outcome) => outcome,
+      finish: (_exec, outcome) => outcome,
+    }
+    // What a duplicate module evaluation produces after the fix: the same
+    // description through the shared registry, never the importing copy's
+    // own symbol identity.
+    const foreignTools = {
+      executionMode: () => ({ kind: 'exclusive' as const }),
+      [Symbol.for('@deepseek-ai/dsh-tools.scheduler') as typeof TOOL_RUNTIME_SCHEDULER]: scheduler,
+    }
+    const block: ToolCallBlock = { type: 'tool-call', id: ToolCallId('c1'), name: 'p', arguments: '{"id":"1"}' }
+    const scoped = { agents: ctx.agents, agentLoop: ctx.agentLoop, tools: foreignTools } as unknown as Context
+    const outcome = await ctx.agents.withInitiator(agent, () => executeToolCalls(
+      scoped, 1, 1, [block], new AbortController().signal, () => {},
+    ))
+    expect(outcome).toEqual({ concluded: false })
+    const trail = events(agent)
+    expect(trail.some(event => event.type === 'tool/call')).toBe(true)
+    expect(trail.some(event => event.type === 'tool/result')).toBe(true)
   })
 })
 
